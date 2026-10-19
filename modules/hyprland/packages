@@ -1,0 +1,46 @@
+# Hyprland desktop — everything hypr/hyprland.conf and waybar reference.
+hyprland
+hyprpaper
+hyprlock
+hypridle
+xdg-desktop-portal-hyprland
+xdg-desktop-portal-gtk
+hyprpolkitagent
+qt5-wayland
+qt6-wayland
+waybar
+rofi
+kitty
+dolphin
+dunst
+network-manager-applet
+wl-clipboard
+grim
+slurp
+brightnessctl
+playerctl
+sddm
+
+# Audio
+pipewire
+pipewire-alsa
+pipewire-pulse
+wireplumber
+pavucontrol
+
+# Desktop plumbing
+xdg-user-dirs
+gvfs
+gvfs-mtp
+breeze
+breeze-icons
+breeze-gtk
+
+# Fonts
+noto-fonts
+noto-fonts-emoji
+ttf-dejavu
+ttf-liberation
+ttf-jetbrains-mono-nerd
+ttf-firacode-nerd
+ttf-nerd-fonts-symbols

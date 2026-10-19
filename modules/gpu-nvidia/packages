@@ -1,0 +1,7 @@
+# Proprietary-module driver for Turing (GTX 16xx / RTX 20xx) and newer.
+# Older cards: pick gpu-nouveau instead.
+nvidia-open-dkms
+nvidia-utils
+linux-headers
+egl-wayland
+libva-nvidia-driver

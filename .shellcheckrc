@@ -1,0 +1,3 @@
+shell=bash
+# Config files and module hooks are sourced from variable paths.
+disable=SC1090,SC1091

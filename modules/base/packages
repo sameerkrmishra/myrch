@@ -1,0 +1,42 @@
+# Core system + CLI tools every machine gets.
+base-devel
+git
+sudo
+man-db
+man-pages
+texinfo
+nano
+vim
+neovim
+zsh
+zsh-autosuggestions
+zram-generator
+networkmanager
+openssh
+pacman-contrib
+reflector
+
+# CLI
+bat
+bc
+btop
+fd
+fzf
+ripgrep
+tree
+tldr
+wget
+rsync
+unzip
+lshw
+ethtool
+inetutils
+net-tools
+openbsd-netcat
+tcpdump
+speedtest-cli
+
+# Filesystems
+dosfstools
+exfatprogs
+ntfs-3g
