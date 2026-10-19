@@ -8,6 +8,10 @@
 # Needs: qemu-desktop edk2-ovmf libarchive python
 # The repo is served to the VM from your working tree, so uncommitted changes
 # are tested too. The VM powers off when the install finishes.
+#
+# HEADLESS=1 runs without a window. The install output is mirrored to
+# test/.vm/serial.log; test/.vm/qmp.sock (QMP) and test/.vm/qga.sock
+# (guest agent, once the installed system is up) allow scripted checks.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -22,12 +26,18 @@ TEST_USER="test"
 TEST_PASSWORD="test"
 
 qemu() {
+	local -a display=()
+	[[ ${HEADLESS-} == 1 ]] && display=(-display none)
 	qemu-system-x86_64 -enable-kvm -cpu host -smp 4 -m 4G \
 		-drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
 		-drive if=pflash,format=raw,file="$STATE/OVMF_VARS.fd" \
 		-drive file="$STATE/disk.qcow2",if=virtio \
 		-nic user,model=virtio-net-pci \
-		"$@"
+		-serial file:"$STATE/serial.log" \
+		-qmp unix:"$STATE/qmp.sock",server=on,wait=off \
+		-chardev socket,path="$STATE/qga.sock",server=on,wait=off,id=qga0 \
+		-device virtio-serial -device virtserialport,chardev=qga0,name=org.qemu.guest_agent.0 \
+		"${display[@]}" "$@"
 }
 
 cmd_install() {
@@ -54,6 +64,7 @@ cmd_install() {
 	cat >"$STATE/www/run.sh" <<-EOF
 		#!/bin/bash
 		set -e
+		exec > >(tee /dev/ttyS0) 2>&1
 		cd /root
 		curl -fsS http://10.0.2.2:$PORT/myrch.tar.gz | tar xz
 		curl -fsS -o answers.conf http://10.0.2.2:$PORT/answers.conf
@@ -71,7 +82,7 @@ cmd_install() {
 	qemu -kernel "$STATE/arch/boot/x86_64/vmlinuz-linux" \
 		-initrd "$STATE/arch/boot/x86_64/initramfs-linux.img" \
 		-append "archisobasedir=arch archisolabel=$label script=http://10.0.2.2:$PORT/run.sh" \
-		-drive file="$iso",media=cdrom,readonly=on
+		-drive file="$iso",if=virtio,format=raw,readonly=on
 }
 
 cmd_boot() {
@@ -80,7 +91,11 @@ cmd_boot() {
 		exit 1
 	}
 	echo "Log in as $TEST_USER / $TEST_PASSWORD"
-	qemu -device virtio-vga-gl -display gtk,gl=on
+	if [[ ${HEADLESS-} == 1 ]]; then
+		qemu -device virtio-vga
+	else
+		qemu -device virtio-vga-gl -display gtk,gl=on
+	fi
 }
 
 case ${1-} in
