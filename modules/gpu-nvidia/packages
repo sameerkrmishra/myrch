@@ -3,5 +3,4 @@
 nvidia-open-dkms
 nvidia-utils
 linux-headers
-egl-wayland
 libva-nvidia-driver

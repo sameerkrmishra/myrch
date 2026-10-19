@@ -5,10 +5,8 @@ code
 neovide
 tree-sitter-cli
 luarocks
-nodejs
 npm
 yarn
-python
 python-pip
 go
 ruby

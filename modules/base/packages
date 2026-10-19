@@ -1,14 +1,11 @@
 # Core system + CLI tools every machine gets.
 base-devel
 git
-sudo
 man-db
 man-pages
-texinfo
 nano
 vim
 neovim
-zsh
 zsh-autosuggestions
 zram-generator
 networkmanager

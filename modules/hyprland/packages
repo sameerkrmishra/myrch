@@ -18,11 +18,9 @@ wl-clipboard
 grim
 slurp
 brightnessctl
-playerctl
 sddm
 
 # Audio
-pipewire
 pipewire-alsa
 pipewire-pulse
 wireplumber
@@ -33,7 +31,6 @@ xdg-user-dirs
 gvfs
 gvfs-mtp
 breeze
-breeze-icons
 breeze-gtk
 
 # Fonts
