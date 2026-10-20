@@ -115,7 +115,11 @@ as_user() {
 
 install_aur() {
 	local -a pkgs
-	mapfile -t pkgs < <(module_list aur | sort -u)
+	# Only what's missing: installed ones (e.g. pre-built on a myrch ISO) are
+	# left for `yay -Syu`, so a newer AUR version can't start a source build.
+	mapfile -t pkgs < <(module_list aur | sort -u | while read -r p; do
+		pacman -Q "$p" &>/dev/null || echo "$p"
+	done)
 	((${#pkgs[@]})) || return 0
 	if ((SKIP_AUR)); then
 		warn "Skipping AUR packages: ${pkgs[*]}"

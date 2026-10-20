@@ -47,21 +47,23 @@ preflight() {
 	info "archinstall $(pacman -Q archinstall | cut -d' ' -f2)"
 }
 
-# archiso sets up the pacman keyring at boot (pacman-init.service), which can
-# still be running when we start, and has been seen to fail. archinstall's
-# online mode refreshes the keyring and hides that; with --offline it doesn't.
+# archiso sets up the pacman keyring at boot (pacman-init.service). We can
+# start before it has even begun (script= boots), so wait for it to finish
+# rather than set the keyring up alongside it, which breaks both. If it fails
+# or leaves the keyring incomplete, pacman fetches every key one at a time.
 ensure_keyring() {
-	local state
-	for _ in $(seq 120); do
+	local state=active
+	[[ $(systemctl show -P LoadState pacman-init.service) == loaded ]] && for _ in $(seq 180); do
 		state=$(systemctl show -P ActiveState pacman-init.service 2>/dev/null)
-		[[ $state == activating ]] || break
+		[[ $state == @(inactive|activating) ]] || break
 		sleep 1
 	done
-	if [[ $state != failed ]] && pacman-key --list-keys 2>/dev/null | grep -q '^pub'; then
+	if [[ $state == active ]] && (($(pacman-key --list-keys 2>/dev/null | grep -c '^pub') > 100)); then
 		return
 	fi
-	warn "The pacman keyring isn't set up; initializing it"
-	rm -rf /etc/pacman.d/gnupg/* /etc/pacman.d/gnupg/.gpg-v21-migrated
+	warn "The pacman keyring isn't set up ($state); initializing it"
+	systemctl stop pacman-init.service 2>/dev/null
+	rm -rf /etc/pacman.d/gnupg
 	pacman-key --init >/dev/null 2>&1
 	pacman-key --populate >/dev/null 2>&1 || die "Could not set up the pacman keyring"
 }

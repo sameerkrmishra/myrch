@@ -9,6 +9,7 @@
 # The repo is served to the VM from your working tree, so uncommitted changes
 # are tested too. The VM powers off when the install finishes.
 #
+# MODULES="..." overrides the modules installed (see below).
 # HEADLESS=1 runs without a window. The install output is mirrored to
 # test/.vm/serial.log; test/.vm/qmp.sock (QMP) and test/.vm/qga.sock
 # (guest agent, once the installed system is up) allow scripted checks.
@@ -21,7 +22,7 @@ OVMF_CODE=/usr/share/edk2/x64/OVMF_CODE.4m.fd
 OVMF_VARS=/usr/share/edk2/x64/OVMF_VARS.4m.fd
 
 # Answers used for the test install.
-MODULES="base hyprland vm-guest gpu-vm dev"
+MODULES=${MODULES:-"base hyprland vm-guest gpu-vm dev"}
 TEST_USER="test"
 TEST_PASSWORD="test"
 
