@@ -28,10 +28,8 @@ unzip
 lshw
 ethtool
 inetutils
-net-tools
 openbsd-netcat
 tcpdump
-speedtest-cli
 
 # Filesystems
 dosfstools

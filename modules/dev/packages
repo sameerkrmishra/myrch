@@ -1,12 +1,7 @@
 docker
 docker-compose
 docker-buildx
-code
-neovide
 tree-sitter-cli
-luarocks
-npm
-yarn
 python-pip
 go
 ruby
