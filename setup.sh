@@ -9,6 +9,8 @@
 #   sudo ./setup.sh --modules base,hyprland,gpu-intel
 #   sudo ./setup.sh --add gaming                 # add a module to this machine
 #   sudo ./setup.sh --only-dotfiles
+#   sudo ./setup.sh --no-packages ...           # skip pacman packages and services
+#                                               # (install.sh: archinstall did them)
 set -euo pipefail
 
 MYRCH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,7 +27,7 @@ usage() {
 
 parse_args() {
 	local profile='' add=''
-	SKIP_AUR=0 ONLY_DOTFILES=0
+	SKIP_AUR=0 ONLY_DOTFILES=0 NO_PACKAGES=0
 	while (($#)); do
 		case $1 in
 		--user) MYRCH_USER=$2 && shift ;;
@@ -33,6 +35,7 @@ parse_args() {
 		--profile) profile=$2 && shift ;;
 		--add) add+=" ${2//,/ }" && shift ;;
 		--no-aur) SKIP_AUR=1 ;;
+		--no-packages) NO_PACKAGES=1 ;;
 		--only-dotfiles) ONLY_DOTFILES=1 ;;
 		-h | --help) usage ;;
 		*) warn "Unknown option: $1" && usage 1 ;;
@@ -212,12 +215,14 @@ main() {
 	ok "Modules: $MYRCH_MODULES"
 	save_config
 
-	configure_pacman
-	install_packages
+	if ((!NO_PACKAGES)); then
+		configure_pacman
+		install_packages
+	fi
 	install_files
 	run_hooks
 	install_aur
-	enable_services
+	((NO_PACKAGES)) || enable_services
 	setup_dotfiles
 	ok "Done. Reboot (or log out and back in) to pick up everything."
 }

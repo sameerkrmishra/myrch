@@ -15,14 +15,22 @@ curl -L https://raw.githubusercontent.com/sameerkrmishra/myrch/main/bootstrap.sh
 You're asked for: disk, hostname, user, password, profile, GPU, optional
 modules and swap size. After you type `yes`, it runs unattended:
 
-1. **install.sh (stage 1):** GPT with a 1G ESP at `/boot` and an ext4 root, `pacstrap`,
-   locale/timezone/hostname, user (in `wheel`; root is locked), and
-   systemd-boot.
-2. **setup.sh (stage 2, in the chroot):** packages from the chosen modules,
-   system config files, module hooks, AUR packages via yay, services, and
-   dotfiles cloned to `~/git/dotfiles` with `config/*` linked into `~/.config`.
+1. **install.sh (stage 1):** turns your answers into an
+   [archinstall](https://github.com/archlinux/archinstall) config and runs
+   `archinstall --silent` (updating archinstall from the repos first). That
+   covers GPT with a 1G ESP at `/boot` and an ext4 root, the base system,
+   every package and service from the chosen modules (multilib enabled),
+   locale/timezone/hostname, the user (in `wheel`), systemd-boot, and zram.
+   Its `custom_commands` then add what archinstall has no option for: the
+   extra locales, `/swapfile`, a locked root account, loader tweaks and a
+   fallback boot entry.
+2. **setup.sh --no-packages (stage 2, in the chroot):** system config files,
+   module hooks, AUR packages via yay, and dotfiles cloned to `~/git/dotfiles`
+   with `config/*` linked into `~/.config`.
 
-The repo itself is copied to `~/git/myrch` on the new machine. The log ends up in `/var/log/myrch-install.log`.
+The repo itself is copied to `~/git/myrch` on the new machine. Logs end up in
+`/var/log/myrch-install.log` and `/var/log/archinstall/` (with the generated
+`config.json`; the credentials file is deleted).
 
 ## Keep a machine in sync
 
@@ -34,6 +42,9 @@ tools/unmanaged.sh                 # installed packages that aren't in any modul
 ```
 
 To adopt an existing machine: `sudo ./setup.sh --user sameer --profile laptop --add dev,apps`.
+
+On an existing machine `setup.sh` does everything itself, packages and
+services included.
 
 ## Layout
 
