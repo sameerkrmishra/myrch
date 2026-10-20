@@ -68,7 +68,7 @@ cmd_install() {
 		cd /root
 		curl -fsS http://10.0.2.2:$PORT/myrch.tar.gz | tar xz
 		curl -fsS -o answers.conf http://10.0.2.2:$PORT/answers.conf
-		mv "$(basename "$ROOT")" myrch
+		[[ "$(basename "$ROOT")" == myrch ]] || mv "$(basename "$ROOT")" myrch
 		if ./myrch/install.sh --answers answers.conf; then
 			poweroff
 		else
