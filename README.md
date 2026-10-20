@@ -32,6 +32,31 @@ The repo itself is copied to `~/git/myrch` on the new machine. Logs end up in
 `/var/log/myrch-install.log` and `/var/log/archinstall/` (with the generated
 `config.json`; the credentials file is deleted).
 
+## Faster installs from a myrch ISO
+
+`tools/build-iso.sh` builds a live ISO that also carries every package the
+modules need (a snapshot of the official repos plus pre-built AUR packages)
+and the dotfiles. Installing from it downloads next to nothing; the new
+system starts at the snapshot's versions, so run `sudo pacman -Syu` after
+the first boot.
+
+```sh
+tools/build-iso.sh                                  # all modules -> out/myrch-<date>-x86_64.iso
+tools/build-iso.sh --modules "base hyprland laptop bluetooth dev"
+sudo dd if=out/myrch-*.iso of=/dev/sdX bs=4M oflag=direct status=progress
+```
+
+Boot it, then run `/root/myrch/install.sh` (same questions as above).
+
+Packages come from this machine's pacman cache when it has the exact file,
+otherwise from a mirror; downloads are kept in `~/.cache/myrch-iso` for the
+next build. It runs natively as root on Arch (or a derivative such as
+EndeavourOS) with `archiso` installed, and in a privileged `archlinux`
+container (docker or podman) anywhere else. Anything missing from the
+snapshot at install time is fetched from the [Arch Linux
+Archive](https://archive.archlinux.org) for the snapshot's date, so versions
+always match.
+
 ## Keep a machine in sync
 
 ```sh
@@ -79,5 +104,6 @@ link is moved to `<name>.myrch-bak-<timestamp>`.
 ```sh
 sudo pacman -S --needed qemu-desktop edk2-ovmf
 test/vm.sh install ~/Downloads/archlinux-*.iso   # unattended install of your working tree
+test/vm.sh install out/myrch-*.iso               # same, from a myrch ISO's snapshot
 test/vm.sh boot                                  # log in as test/test
 ```

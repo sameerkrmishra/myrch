@@ -22,17 +22,123 @@ source "$MYRCH_ROOT/defaults.conf"
 
 LOG=/tmp/myrch-install.log
 WORK=/tmp/myrch
+# Where a myrch ISO's package snapshot (tools/build-iso.sh) is mounted, on the
+# live system and, during stage 2, in the new one.
+SNAP=/opt/myrch-snapshot
 
 preflight() {
 	[[ $EUID -eq 0 ]] || die "Run as root from the Arch live ISO"
 	[[ -d /sys/firmware/efi ]] || die "Not booted in UEFI mode (systemd-boot needs UEFI)"
 	command -v pacstrap &>/dev/null || die "pacstrap not found; run this from the Arch ISO"
-	curl -fsI --max-time 10 https://archlinux.org >/dev/null ||
-		die "No network. For Wi-Fi: iwctl station wlan0 connect <SSID>"
+	ensure_keyring
+	ONLINE=1
+	curl -fsI --max-time 10 https://archlinux.org >/dev/null || ONLINE=0
+	find_snapshot
+	if ((HAVE_SNAP)); then
+		source "$SNAP/info"
+		ok "Installing from the ISO's package snapshot ($SNAPSHOT_DATE)"
+		((ONLINE)) || warn "No network: anything not on the ISO (and AUR updates, dotfiles pulls) will fail"
+		return
+	fi
+	((ONLINE)) || die "No network. For Wi-Fi: iwctl station wlan0 connect <SSID>"
 	# The config format below is archinstall 4's; older ISOs ship older ones.
 	step "Updating archinstall"
 	pacman -Sy --needed --noconfirm archinstall >/dev/null
 	info "archinstall $(pacman -Q archinstall | cut -d' ' -f2)"
+}
+
+# archiso sets up the pacman keyring at boot (pacman-init.service), which can
+# still be running when we start, and has been seen to fail. archinstall's
+# online mode refreshes the keyring and hides that; with --offline it doesn't.
+ensure_keyring() {
+	local state
+	for _ in $(seq 120); do
+		state=$(systemctl show -P ActiveState pacman-init.service 2>/dev/null)
+		[[ $state == activating ]] || break
+		sleep 1
+	done
+	if [[ $state != failed ]] && pacman-key --list-keys 2>/dev/null | grep -q '^pub'; then
+		return
+	fi
+	warn "The pacman keyring isn't set up; initializing it"
+	rm -rf /etc/pacman.d/gnupg/* /etc/pacman.d/gnupg/.gpg-v21-migrated
+	pacman-key --init >/dev/null 2>&1
+	pacman-key --populate >/dev/null 2>&1 || die "Could not set up the pacman keyring"
+}
+
+# A myrch ISO keeps the snapshot on the boot medium, which archiso unmounts
+# after copytoram, so mount it again by its label.
+find_snapshot() {
+	HAVE_SNAP=0
+	local src=/run/archiso/bootmnt/myrch/repo label
+	if [[ ! -d $src ]]; then
+		label=$(sed -n 's/.*archisolabel=\([^ ]*\).*/\1/p' /proc/cmdline)
+		[[ -n $label && -e /dev/disk/by-label/$label ]] || return 0
+		mkdir -p /run/myrch-iso
+		mountpoint -q /run/myrch-iso || mount -o ro "/dev/disk/by-label/$label" /run/myrch-iso 2>/dev/null || return 0
+		src=/run/myrch-iso/myrch/repo
+	fi
+	[[ -f $src/info ]] || return 0
+	mkdir -p "$SNAP"
+	mountpoint -q "$SNAP" || mount --bind "$src" "$SNAP"
+	HAVE_SNAP=1
+}
+
+# Point the live system's pacman at the snapshot. Packages it lacks come from
+# the Arch Linux Archive's copy of the repos on the snapshot's date, so they
+# match. The real mirrorlist is kept for the new system.
+use_snapshot() {
+	local d next
+	# Let the ISO's reflector finish so it doesn't overwrite us later.
+	for _ in $(seq 60); do
+		[[ $(systemctl show -P ActiveState reflector.service 2>/dev/null) == activating ]] || break
+		sleep 1
+	done
+	cp /etc/pacman.d/mirrorlist "$WORK/mirrorlist"
+	grep -q '^Server' "$WORK/mirrorlist" ||
+		echo 'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch' >"$WORK/mirrorlist"
+	next=$(date -u -d "${SNAPSHOT_DATE//\//-} + 1 day" +%Y/%m/%d)
+	{
+		echo "Server = file://$SNAP/\$repo/os/\$arch"
+		for d in "$SNAPSHOT_DATE" "$next"; do
+			echo "Server = https://archive.archlinux.org/repos/$d/\$repo/os/\$arch"
+		done
+		# The archive lags a day; on the build day the live mirrors still match.
+		grep '^Server' "$WORK/mirrorlist"
+	} >/etc/pacman.d/mirrorlist
+}
+
+# Before setup.sh: make the snapshot visible inside the new system (whose
+# mirrorlist pacstrap copied from ours) and install the pre-built AUR packages.
+snapshot_stage2() {
+	mkdir -p "/mnt$SNAP"
+	mount --bind "$SNAP" "/mnt$SNAP"
+	[[ -d $SNAP/myrch-aur ]] || return 0
+
+	local m
+	local -a want avail
+	cp /mnt/etc/pacman.conf "$WORK/pacman.conf"
+	printf '\n[myrch-aur]\nSigLevel = Optional TrustAll\nServer = file://%s/$repo/os/$arch\n' "$SNAP" >>/mnt/etc/pacman.conf
+	arch-chroot /mnt pacman -Sy >/dev/null
+	mapfile -t avail < <(arch-chroot /mnt pacman -Slq myrch-aur)
+	mapfile -t want < <(
+		echo yay-bin
+		for m in $MODULES; do read_list "$MYRCH_ROOT/modules/$m/aur"; done
+	)
+	mapfile -t want < <(printf '%s\n' "${want[@]}" | grep -xF -f <(printf '%s\n' "${avail[@]}"))
+	if ((${#want[@]})); then
+		step "Installing ${#want[@]} pre-built AUR packages"
+		arch-chroot /mnt pacman -S --needed --noconfirm "${want[@]}" ||
+			warn "Some pre-built AUR packages failed; setup.sh will build them"
+	fi
+}
+
+# After setup.sh: hand the new system its real mirrors and pacman.conf.
+snapshot_finish() {
+	[[ -f $WORK/pacman.conf ]] && cp "$WORK/pacman.conf" /mnt/etc/pacman.conf
+	cp "$WORK/mirrorlist" /mnt/etc/pacman.d/mirrorlist
+	umount "/mnt$SNAP"
+	rmdir "/mnt$SNAP"
 }
 
 pick_disk() {
@@ -222,8 +328,12 @@ run_archinstall() {
 	swapoff -a 2>/dev/null || true
 	timedatectl set-ntp true
 	local rc=0
-	archinstall --config "$WORK/config.json" --creds "$WORK/creds.json" \
-		--silent --skip-version-check || rc=$?
+	local -a flags=(--silent --skip-version-check)
+	# With a snapshot, archinstall needn't fetch anything itself; offline it
+	# would also wait forever for time sync.
+	((HAVE_SNAP)) && flags+=(--offline)
+	((ONLINE)) || flags+=(--skip-ntp --skip-wkd)
+	archinstall --config "$WORK/config.json" --creds "$WORK/creds.json" "${flags[@]}" || rc=$?
 	rm -f "$WORK/creds.json"
 	((rc == 0)) || die "archinstall failed; see /var/log/archinstall/install.log"
 	findmnt /mnt >/dev/null || die "archinstall finished but /mnt is not mounted"
@@ -234,6 +344,11 @@ run_setup() {
 	step "Copying myrch to $dest"
 	mkdir -p "/mnt$(dirname "$dest")"
 	cp -a "$MYRCH_ROOT" "/mnt$dest"
+	# A myrch ISO carries the dotfiles too; setup.sh pulls them if online.
+	if [[ -d /root/dotfiles/.git ]]; then
+		mkdir -p "/mnt/home/$USER_NAME/$(dirname "$DOTFILES_DIR")"
+		cp -a /root/dotfiles "/mnt/home/$USER_NAME/$DOTFILES_DIR"
+	fi
 	arch-chroot /mnt chown -R "$USER_NAME:$USER_NAME" "/home/$USER_NAME"
 	arch-chroot /mnt "$dest/setup.sh" --user "$USER_NAME" --modules "$MODULES" --no-packages ||
 		warn "setup.sh failed. Boot the new system and re-run: sudo ~/$MYRCH_DIR/setup.sh"
@@ -258,13 +373,18 @@ main() {
 	exec > >(tee -a "$LOG") 2>&1
 	local start=$SECONDS
 	write_config
+	((HAVE_SNAP)) && use_snapshot
 	run_archinstall
+	((HAVE_SNAP)) && snapshot_stage2
 	run_setup
+	((HAVE_SNAP)) && snapshot_finish
 	mkdir -p /mnt/var/log/archinstall
 	cp /var/log/archinstall/install.log "$WORK/config.json" /mnt/var/log/archinstall/ 2>/dev/null || true
 	cp "$LOG" /mnt/var/log/myrch-install.log
 
-	ok "Installed in $(((SECONDS - start) / 60)) min. Remove the ISO and reboot."
+	local t=$((SECONDS - start))
+	ok "Installed in $((t / 60)) min $((t % 60)) s. Remove the ISO and reboot."
+	((HAVE_SNAP)) && info "Packages are from $SNAPSHOT_DATE: run 'sudo pacman -Syu' once you're in"
 	if [[ ${CONFIRM-} != yes ]] && ask_yn "Reboot now?" y; then
 		umount -R /mnt
 		reboot
