@@ -51,7 +51,7 @@ cmd_install() {
 	bsdtar -xf "$iso" -C "$STATE" arch/boot/x86_64/vmlinuz-linux arch/boot/x86_64/initramfs-linux.img
 	label=$(dd if="$iso" bs=1 skip=32808 count=32 status=none | tr -d ' ')
 
-	tar -C "$ROOT/.." --exclude=test/.vm -czf "$STATE/www/myrch.tar.gz" "$(basename "$ROOT")"
+	tar -C "$ROOT/.." --exclude=test/.vm --exclude=out -czf "$STATE/www/myrch.tar.gz" "$(basename "$ROOT")"
 	cat >"$STATE/www/answers.conf" <<-EOF
 		DISK=/dev/vda
 		HOST_NAME=myrch-test
@@ -66,6 +66,7 @@ cmd_install() {
 		set -e
 		exec > >(tee /dev/ttyS0) 2>&1
 		cd /root
+		rm -rf myrch # a myrch ISO has its own copy; test the working tree
 		curl -fsS http://10.0.2.2:$PORT/myrch.tar.gz | tar xz
 		curl -fsS -o answers.conf http://10.0.2.2:$PORT/answers.conf
 		[[ "$(basename "$ROOT")" == myrch ]] || mv "$(basename "$ROOT")" myrch
