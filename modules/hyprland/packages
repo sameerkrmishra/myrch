@@ -11,7 +11,8 @@ qt6-wayland
 waybar
 rofi
 kitty
-dolphin
+thunar
+thunar-volman
 dunst
 network-manager-applet
 wl-clipboard

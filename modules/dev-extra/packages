@@ -1,8 +1,5 @@
 # Languages and tools used less often.
 emacs
-agda
-clojure
-sbcl
 rlwrap
 pandoc-cli
 android-tools
