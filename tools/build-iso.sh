@@ -109,22 +109,55 @@ snapshot_repos() {
 	SNAP=$WORK/snapshot
 	mkdir -p "$WORK/db" "$WORK/none" "$CACHE"
 	write_pacman_conf /etc/pacman.d/mirrorlist >"$WORK/pacman.conf"
-	local -a pac=(pacman --config "$WORK/pacman.conf" --dbpath "$WORK/db" --noconfirm)
+	PAC=(pacman --config "$WORK/pacman.conf" --dbpath "$WORK/db" --noconfirm)
 
 	step "Syncing package databases"
-	"${pac[@]}" -Sy >/dev/null
+	"${PAC[@]}" -Sy >/dev/null
 	SNAPSHOT_DATE=$(date -u +%Y/%m/%d)
+	local r
+	for r in core extra multilib; do
+		mkdir -p "$SNAP/$r/os/x86_64"
+		cp "$WORK/db/sync/$r.db" "$SNAP/$r/os/x86_64/$r.db"
+	done
 
 	# Everything the modules need, dependencies included (the db is empty).
 	local -a entries
-	mapfile -t entries < <("${pac[@]}" -Sp --cachedir "$WORK/none" --print-format '%r %n %f %l' "${pkgs[@]}")
+	mapfile -t entries < <("${PAC[@]}" -Sp --cachedir "$WORK/none" --print-format '%r %n %f %l' "${pkgs[@]}")
 	step "Collecting ${#entries[@]} packages"
+	collect "${entries[@]}"
+}
 
-	local e r n f u d have=0
-	local -a missing=()
+# The AUR packages' dependencies from the official repos, which the modules'
+# packages may not have pulled in already.
+snapshot_aur_deps() {
+	local db=$SNAP/myrch-aur/os/x86_64/myrch-aur.db
+	[[ -f $db ]] || return 0
+	cp -L "$db" "$WORK/db/sync/myrch-aur.db"
+	cp "$WORK/pacman.conf" "$WORK/pacman-aur.conf"
+	printf '\n[myrch-aur]\nSigLevel = Optional TrustAll\nServer = file://%s\n' "${db%/*}" >>"$WORK/pacman-aur.conf"
+	local -a names entries
+	mapfile -t names < <(tar -tzf "$db" | sed -n 's|^\([^/]*\)-[^-]*-[^-]*/$|\1|p')
+	mapfile -t entries < <(pacman --config "$WORK/pacman-aur.conf" --dbpath "$WORK/db" --noconfirm \
+		-Sp --cachedir "$WORK/none" --print-format '%r %n %f %l' "${names[@]}" | awk '$1 != "myrch-aur"')
+	local e r n f u
+	local -a new=()
 	for e in "${entries[@]}"; do
 		read -r r n f u <<<"$e"
-		mkdir -p "$SNAP/$r/os/x86_64"
+		[[ -f $SNAP/$r/os/x86_64/$f ]] || new+=("$e")
+	done
+	((${#new[@]})) || return 0
+	step "Collecting ${#new[@]} more packages for the AUR packages"
+	collect "${new[@]}"
+}
+
+# collect ENTRY...: put these packages ("repo name file url") and their
+# signatures into the snapshot, from local caches when possible.
+collect() {
+	local e r n f u d have=0
+	local -a missing=()
+	for e; do
+		read -r r n f u <<<"$e"
+		SNAP_FILES+=("$f")
 		if [[ -n $HOST_CACHE && -f $HOST_CACHE/$f ]]; then
 			take "$HOST_CACHE" "$f" "$SNAP/$r/os/x86_64"
 			((++have))
@@ -142,7 +175,7 @@ snapshot_repos() {
 		# that isn't in its first cache dir.
 		local try
 		for try in 1 2 3; do
-			"${pac[@]}" -Swdd --cachedir "$CACHE" \
+			"${PAC[@]}" -Swdd --cachedir "$CACHE" \
 				$(printf '%s\n' "${missing[@]}" | awk '{print $1 "/" $2}') >/dev/null && break
 			((try < 3)) || die "Downloads failed"
 			warn "Some downloads failed; retrying"
@@ -157,7 +190,7 @@ snapshot_repos() {
 	# pacman fetches each package's detached signature from the same server,
 	# so the snapshot needs them too. Caches don't always have them.
 	: >"$WORK/sigs"
-	for e in "${entries[@]}"; do
+	for e; do
 		read -r r n f u <<<"$e"
 		d=$SNAP/$r/os/x86_64
 		[[ -f $d/$f.sig ]] || printf 'url = "%s.sig"\noutput = "%s/%s.sig"\n' "$u" "$d" "$f" >>"$WORK/sigs"
@@ -171,25 +204,19 @@ snapshot_repos() {
 	# signatures again at install time).
 	step "Verifying packages"
 	for r in core extra multilib; do
-		[[ -d $SNAP/$r ]] || continue
 		awk 'NR == FNR {have[$0]; next}
 			/^%FILENAME%$/ {getline; f = $0}
 			/^%SHA256SUM%$/ {getline; if (f in have) print $0 "  " f}' \
 			<(ls "$SNAP/$r/os/x86_64") <(tar -xOf "$WORK/db/sync/$r.db" --wildcards '*/desc') |
 			(cd "$SNAP/$r/os/x86_64" && sha256sum --quiet -c -) || die "Checksum mismatch in $r"
 	done
+}
 
-	for r in core extra multilib; do
-		mkdir -p "$SNAP/$r/os/x86_64"
-		cp "$WORK/db/sync/$r.db" "$SNAP/$r/os/x86_64/$r.db"
-	done
-
-	# Drop downloads no longer in any snapshot so the cache doesn't grow forever.
+# Drop downloads no longer in the snapshot so the cache doesn't grow forever.
+prune_cache() {
 	local -A keep=()
-	for e in "${entries[@]}"; do
-		read -r r n f u <<<"$e"
-		keep[$f]=1 keep[$f.sig]=1
-	done
+	local f
+	for f in "${SNAP_FILES[@]}"; do keep[$f]=1 keep[$f.sig]=1; done
 	for f in "$CACHE"/*.pkg.tar.*; do
 		[[ -e $f && -z ${keep[$(basename "$f")]-} ]] && rm -f "$f"
 	done
@@ -215,9 +242,13 @@ build_aur() {
 	write_pacman_conf /etc/pacman.d/myrch >"$root/etc/pacman.conf"
 	cp /etc/pacman.d/mirrorlist "$root/etc/pacman.d/mirrorlist"
 	sed -i 's/^\(OPTIONS=.*[ (]\)debug/\1!debug/' "$root/etc/makepkg.conf"
+	# Built packages go to their own folder: some PKGBUILDs (e.g.
+	# ungoogled-chromium-widevine-bin) download other packages as sources.
+	echo 'PKGDEST=/home/builder/pkgs' >>"$root/etc/makepkg.conf"
 
 	arch-chroot "$root" bash -euo pipefail -s -- "${aur[@]}" <<-'EOF'
 		useradd -m builder
+		install -d -o builder -g builder /home/builder/pkgs
 		echo 'builder ALL=(ALL) NOPASSWD: ALL' >/etc/sudoers.d/builder
 		su builder -c 'cd && mkdir build && git clone -q --depth 1 https://aur.archlinux.org/yay-bin.git &&
 			cd yay-bin && makepkg -si --noconfirm >/dev/null'
@@ -228,7 +259,7 @@ build_aur() {
 	EOF
 
 	mkdir -p "$dest"
-	find "$root/home/builder" -name '*.pkg.tar.zst' ! -name '*-debug-*' -exec cp {} "$dest/" \;
+	find "$root/home/builder/pkgs" -name '*.pkg.tar.zst' ! -name '*-debug-*' -exec cp {} "$dest/" \;
 	local -a built=("$dest"/*.pkg.tar.zst)
 	if [[ -e ${built[0]} ]]; then
 		repo-add -q "$dest/myrch-aur.db.tar.gz" "${built[@]}"
@@ -305,8 +336,13 @@ main() {
 	mkdir -p "$WORK"
 	local start=$SECONDS
 
+	SNAP_FILES=()
 	snapshot_repos
-	((NO_AUR)) || build_aur
+	if ((!NO_AUR)); then
+		build_aur
+		snapshot_aur_deps
+	fi
+	prune_cache
 	build_iso
 	rm -rf "$WORK"
 	ok "Built $ISO ($(du -h "$ISO" | cut -f1)) in $(((SECONDS - start) / 60)) min"
