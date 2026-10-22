@@ -30,9 +30,10 @@ preflight() {
 	[[ $EUID -eq 0 ]] || die "Run as root from the Arch live ISO"
 	[[ -d /sys/firmware/efi ]] || die "Not booted in UEFI mode (systemd-boot needs UEFI)"
 	command -v pacstrap &>/dev/null || die "pacstrap not found; run this from the Arch ISO"
-	ensure_keyring
+	step "Checking the live system"
 	ONLINE=1
 	curl -fsI --max-time 10 https://archlinux.org >/dev/null || ONLINE=0
+	ensure_keyring
 	find_snapshot
 	if ((HAVE_SNAP)); then
 		source "$SNAP/info"
@@ -51,13 +52,21 @@ preflight() {
 # start before it has even begun (script= boots), so wait for it to finish
 # rather than set the keyring up alongside it, which breaks both. If it fails
 # or leaves the keyring incomplete, pacman fetches every key one at a time.
+# pacman-init waits for time-sync.target, which offline never comes: then
+# don't wait, and after a short wait for NTP online either.
 ensure_keyring() {
-	local state=active
-	[[ $(systemctl show -P LoadState pacman-init.service) == loaded ]] && for _ in $(seq 180); do
-		state=$(systemctl show -P ActiveState pacman-init.service 2>/dev/null)
-		[[ $state == @(inactive|activating) ]] || break
-		sleep 1
-	done
+	local state=active i
+	if [[ $(systemctl show -P LoadState pacman-init.service) == loaded ]]; then
+		for i in $(seq 180); do
+			state=$(systemctl show -P ActiveState pacman-init.service 2>/dev/null)
+			[[ $state == @(inactive|activating) ]] || break
+			if [[ $state == inactive ]] && ! systemctl -q is-active time-sync.target; then
+				((ONLINE && i <= 30)) || break
+			fi
+			((i == 1)) && info "Waiting for the live system to set up the pacman keyring"
+			sleep 1
+		done
+	fi
 	if [[ $state == active ]] && (($(pacman-key --list-keys 2>/dev/null | grep -c '^pub') > 100)); then
 		return
 	fi
