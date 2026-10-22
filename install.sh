@@ -70,9 +70,17 @@ ensure_keyring() {
 	if [[ $state == active ]] && (($(pacman-key --list-keys 2>/dev/null | grep -c '^pub') > 100)); then
 		return
 	fi
-	warn "The pacman keyring isn't set up ($state); initializing it"
-	systemctl stop pacman-init.service 2>/dev/null
-	rm -rf /etc/pacman.d/gnupg
+	# Inactive: pacman-init never ran (no time sync), which is expected offline.
+	if [[ $state == inactive ]]; then
+		info "Setting up the pacman keyring"
+	else
+		warn "The pacman keyring isn't set up ($state); initializing it"
+	fi
+	systemctl stop pacman-init.service 2>/dev/null || true
+	# On the ISO the directory is a tmpfs mount point: empty it, don't remove it.
+	gpgconf --homedir /etc/pacman.d/gnupg --kill all 2>/dev/null || true
+	mkdir -p /etc/pacman.d/gnupg
+	find /etc/pacman.d/gnupg -mindepth 1 -delete
 	pacman-key --init >/dev/null 2>&1
 	pacman-key --populate >/dev/null 2>&1 || die "Could not set up the pacman keyring"
 }
