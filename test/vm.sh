@@ -42,7 +42,7 @@ qemu() {
 }
 
 cmd_install() {
-	local iso=${1:?usage: test/vm.sh install ISO} label
+	local iso=${1:?usage: test/vm.sh install ISO} uuid
 	mkdir -p "$STATE/www"
 	rm -f "$STATE/disk.qcow2"
 	qemu-img create -q -f qcow2 "$STATE/disk.qcow2" 30G
@@ -50,7 +50,8 @@ cmd_install() {
 
 	# Boot the ISO's kernel directly so we can add archiso's script= parameter.
 	bsdtar -xf "$iso" -C "$STATE" arch/boot/x86_64/vmlinuz-linux arch/boot/x86_64/initramfs-linux.img
-	label=$(dd if="$iso" bs=1 skip=32808 count=32 status=none | tr -d ' ')
+	# Find the medium by UUID, like the ISO's own boot entries.
+	uuid=$(blkid -p -s UUID -o value "$iso")
 
 	tar -C "$ROOT/.." --exclude=test/.vm --exclude=out -czf "$STATE/www/myrch.tar.gz" "$(basename "$ROOT")"
 	cat >"$STATE/www/answers.conf" <<-EOF
@@ -83,7 +84,7 @@ cmd_install() {
 
 	qemu -kernel "$STATE/arch/boot/x86_64/vmlinuz-linux" \
 		-initrd "$STATE/arch/boot/x86_64/initramfs-linux.img" \
-		-append "archisobasedir=arch archisolabel=$label script=http://10.0.2.2:$PORT/run.sh" \
+		-append "archisobasedir=arch archisosearchuuid=$uuid script=http://10.0.2.2:$PORT/run.sh" \
 		-drive file="$iso",if=virtio,format=raw,readonly=on
 }
 

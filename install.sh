@@ -52,16 +52,19 @@ preflight() {
 # start before it has even begun (script= boots), so wait for it to finish
 # rather than set the keyring up alongside it, which breaks both. If it fails
 # or leaves the keyring incomplete, pacman fetches every key one at a time.
-# pacman-init waits for time-sync.target, which offline never comes: then
-# don't wait, and after a short wait for NTP online either.
+# An inactive pacman-init with no start job queued won't run (an earlier
+# install.sh stopped it). A queued one waits for time-sync.target, which
+# offline never comes: then don't wait, and online wait 30 s for NTP.
 ensure_keyring() {
 	local state=active i
 	if [[ $(systemctl show -P LoadState pacman-init.service) == loaded ]]; then
 		for i in $(seq 180); do
 			state=$(systemctl show -P ActiveState pacman-init.service 2>/dev/null)
-			[[ $state == @(inactive|activating) ]] || break
-			if [[ $state == inactive ]] && ! systemctl -q is-active time-sync.target; then
+			if [[ $state == inactive ]]; then
+				[[ -n $(systemctl list-jobs --no-legend pacman-init.service 2>/dev/null) ]] || break
 				((ONLINE && i <= 30)) || break
+			elif [[ $state != activating ]]; then
+				break
 			fi
 			((i == 1)) && info "Waiting for the live system to set up the pacman keyring"
 			sleep 1
@@ -70,7 +73,8 @@ ensure_keyring() {
 	if [[ $state == active ]] && (($(pacman-key --list-keys 2>/dev/null | grep -c '^pub') > 100)); then
 		return
 	fi
-	# Inactive: pacman-init never ran (no time sync), which is expected offline.
+	# Inactive: pacman-init never ran (no time sync, or stopped by an earlier
+	# run), which is expected.
 	if [[ $state == inactive ]]; then
 		info "Setting up the pacman keyring"
 	else
@@ -86,15 +90,22 @@ ensure_keyring() {
 }
 
 # A myrch ISO keeps the snapshot on the boot medium, which archiso unmounts
-# after copytoram, so mount it again by its label.
+# after copytoram, so mount it again. The boot entries find the medium by
+# UUID (archisosearchuuid=); other boots may give a label or a device.
 find_snapshot() {
 	HAVE_SNAP=0
-	local src=/run/archiso/bootmnt/myrch/repo label
+	local src=/run/archiso/bootmnt/myrch/repo p dev=''
 	if [[ ! -d $src ]]; then
-		label=$(sed -n 's/.*archisolabel=\([^ ]*\).*/\1/p' /proc/cmdline)
-		[[ -n $label && -e /dev/disk/by-label/$label ]] || return 0
+		for p in $(</proc/cmdline); do
+			case $p in
+			archisodevice=*) dev=${p#*=} ;;
+			archisosearchuuid=*) dev=/dev/disk/by-uuid/${p#*=} ;;
+			archisolabel=*) dev=/dev/disk/by-label/${p#*=} ;;
+			esac
+		done
+		[[ -n $dev && -e $dev ]] || return 0
 		mkdir -p /run/myrch-iso
-		mountpoint -q /run/myrch-iso || mount -o ro "/dev/disk/by-label/$label" /run/myrch-iso 2>/dev/null || return 0
+		mountpoint -q /run/myrch-iso || mount -o ro "$dev" /run/myrch-iso 2>/dev/null || return 0
 		src=/run/myrch-iso/myrch/repo
 	fi
 	[[ -f $src/info ]] || return 0
