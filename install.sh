@@ -173,15 +173,17 @@ snapshot_finish() {
 
 pick_disk() {
 	local -a disks labels
-	local name size model boot_dev
+	local name bytes model boot_dev
 	# Don't offer the USB stick we booted from.
 	boot_dev=$(findmnt -no SOURCE /run/archiso/bootmnt 2>/dev/null | sed -E 's/p?[0-9]+$//') || true
-	while read -r name size model; do
-		[[ $name == "$boot_dev" ]] && continue
+	while read -r name bytes model; do
+		[[ $name == "$boot_dev" || $name == /dev/zram* ]] && continue
+		# Floppies, card readers without a card...
+		((bytes >= 8 * 1024 ** 3)) || continue
 		disks+=("$name")
-		labels+=("$name  $size  ${model:-}")
-	done < <(lsblk -dpnro NAME,SIZE,MODEL,TYPE | awk '$NF == "disk" {NF--; print}' | sed 's/\\x20/ /g')
-	((${#disks[@]})) || die "No disks found"
+		labels+=("$name  $(numfmt --to=iec --round=nearest "$bytes")  ${model:-}")
+	done < <(lsblk -dpnbro NAME,SIZE,MODEL,TYPE | awk '$NF == "disk" {NF--; print}' | sed 's/\\x20/ /g')
+	((${#disks[@]})) || die "No disks of 8 GiB or more found"
 	echo "Disks:"
 	local choice
 	ask_choice choice "Install to" 1 "${labels[@]}"
