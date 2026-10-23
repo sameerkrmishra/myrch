@@ -273,6 +273,25 @@ build_aur() {
 	rm -rf "$root"
 }
 
+# A default boot entry that starts install.sh on tty1; the plain live system
+# stays as the next one. UEFI (systemd-boot) only, like install.sh.
+add_install_entry() {
+	local entries=$1/efiboot/loader/entries
+	sed -e 's/^title .*/title    Install myrch (%ARCH%, UEFI)/' -e 's/^sort-key .*/sort-key 00/' \
+		-e 's/^options .*/& myrch=install/' "$entries/01-archiso-linux.conf" >"$entries/00-myrch-install.conf"
+	sed -i 's/^title .*/title    myrch live system (%ARCH%, UEFI)/' "$entries/01-archiso-linux.conf"
+	sed -i 's/^default .*/default 00-myrch-install.conf/' "$1/efiboot/loader/loader.conf"
+	# .zlogin is zsh, root's login shell on the ISO.
+	cat >>"$1/airootfs/root/.zlogin" <<-'EOF'
+
+		# myrch: the "Install myrch" boot entry runs the installer, once.
+		if [[ $(tty) == /dev/tty1 && " $(</proc/cmdline) " == *" myrch=install "* && ! -e /tmp/myrch-started ]]; then
+		    touch /tmp/myrch-started
+		    /root/myrch/install.sh || print "\nThe installer stopped. Run /root/myrch/install.sh to start it again."
+		fi
+	EOF
+}
+
 build_iso() {
 	local profile=$WORK/profile version
 	version=$(date -u +%Y.%m.%d)
@@ -285,6 +304,7 @@ build_iso() {
 		"$profile/profiledef.sh"
 	# zstd instead of releng's xz: a slightly bigger image, but it compresses
 	# many times faster (xz took two hours on an old laptop) and boots faster.
+	add_install_entry "$profile"
 
 	# The repo (and dotfiles) in /root, so the ISO needs no network to start.
 	mkdir -p "$profile/airootfs/root/myrch"

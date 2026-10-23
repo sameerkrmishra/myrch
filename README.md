@@ -46,7 +46,9 @@ tools/build-iso.sh --modules "base hyprland laptop bluetooth dev"
 sudo dd if=out/myrch-*.iso of=/dev/sdX bs=4M oflag=direct status=progress
 ```
 
-Boot it, then run `/root/myrch/install.sh` (same questions as above).
+Boot it (UEFI): the default **Install myrch** entry starts the installer
+(same questions as above). **myrch live system** boots to a shell instead;
+run `/root/myrch/install.sh` from there.
 
 Packages come from this machine's pacman cache when it has the exact file,
 otherwise from a mirror; downloads are kept in `~/.cache/myrch-iso` for the
