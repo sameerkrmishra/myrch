@@ -1,7 +1,8 @@
 # myrch
 
 Zero to a fully set up Arch + Hyprland machine: answer a few questions, then
-walk away.
+walk away. From a [myrch ISO](#faster-installs-from-a-myrch-iso), the whole
+install takes about five minutes.
 
 ## Install a new machine
 
@@ -36,9 +37,10 @@ The repo itself is copied to `~/git/myrch` on the new machine. Logs end up in
 
 `tools/build-iso.sh` builds a live ISO that also carries every package the
 modules need (a snapshot of the official repos plus pre-built AUR packages)
-and the dotfiles. Installing from it downloads next to nothing; the new
-system starts at the snapshot's versions, so run `sudo pacman -Syu` after
-the first boot.
+and the dotfiles. Installing from it downloads next to nothing and compiles
+nothing, so a full install takes under five minutes: about 3 once the
+questions are answered, on a PC and in a VM. The new system starts at the
+snapshot's versions, so run `sudo pacman -Syu` after the first boot.
 
 ```sh
 tools/build-iso.sh                                  # all modules -> out/myrch-<date>-x86_64.iso
